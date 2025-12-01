@@ -1,0 +1,326 @@
+<template>
+  <v-container>
+    <v-row>
+      <v-col cols="12">
+        <h1 class="text-h4 mb-4 font-weight-bold text-primary">
+          <v-icon start>mdi-account-edit</v-icon>
+          ประเมินตนเอง (Self-Assessment)
+        </h1>
+      </v-col>
+    </v-row>
+
+    <v-card class="mb-6 elevation-2">
+      <v-card-text>
+        <v-select
+          v-model="selectedRoundId"
+          :items="rounds"
+          item-title="round_name"
+          item-value="id"
+          label="เลือกรอบการประเมิน"
+          variant="outlined"
+          prepend-inner-icon="mdi-calendar-range"
+          hide-details
+          @update:modelValue="fetchCriterias"
+        ></v-select>
+      </v-card-text>
+    </v-card>
+
+    <div v-if="loading" class="text-center py-5">
+      <v-progress-circular indeterminate color="primary" size="64"></v-progress-circular>
+      <div class="mt-3">กำลังโหลดข้อมูลเกณฑ์...</div>
+    </div>
+
+    <div v-else-if="selectedRoundId && criterias.length > 0">
+      <v-expansion-panels variant="popout" class="mb-6">
+        <v-expansion-panel
+          v-for="(criteriaItem, index) in criterias"
+          :key="criteriaItem.id"
+          elevation="2"
+        >
+          <v-expansion-panel-title>
+            <v-row no-gutters align="center">
+              <v-col cols="8">
+                <div class="font-weight-bold text-subtitle-1">
+                  {{ index + 1 }}. {{ criteriaItem.topic_name }}
+                </div>
+                <div class="text-caption text-grey">
+                  {{ criteriaItem.indicator_name }}
+                </div>
+                <div v-if="criteriaItem.description" class="text-caption text-grey-darken-1 mt-1">
+                  ({{ criteriaItem.description }})
+                </div>
+              </v-col>
+              <v-col cols="4" class="text-right text-caption text-primary">
+                (คะแนนเต็ม: {{ criteriaItem.max_score }})
+                <v-icon v-if="criteriaItem.isSubmitted" color="success" class="ml-2">
+                  mdi-check-circle
+                </v-icon>
+              </v-col>
+            </v-row>
+          </v-expansion-panel-title>
+
+          <v-expansion-panel-text>
+            <v-divider class="mb-4"></v-divider>
+            
+            <v-form @submit.prevent="submitItem(criteriaItem)">
+              <v-row>
+                <v-col cols="12" md="7">
+                  <v-label class="mb-2 font-weight-bold">คะแนนประเมินตนเอง</v-label>
+                  
+                  <div v-if="criteriaItem.scoring_type === 'scale'">
+                    <v-radio-group v-model="assessmentForms[criteriaItem.id].score">
+                      <v-radio label="1 - ปฏิบัติได้ต่ำกว่าระดับการปฏิบัติที่คาดหวังมาก" :value="1"></v-radio>
+                      <v-radio label="2 - ปฏิบัติได้ต่ำกว่าระดับการปฏิบัติที่คาดหวัง" :value="2"></v-radio>
+                      <v-radio label="3 - ปฏิบัติได้ตามระดับการปฏิบัติที่คาดหวัง" :value="3"></v-radio>
+                      <v-radio label="4 - ปฏิบัติได้สูงกว่าระดับการปฏิบัติที่คาดหวัง" :value="4"></v-radio>
+                    </v-radio-group>
+                  </div>
+                  <div v-else>
+                    <v-switch
+                      v-model="assessmentForms[criteriaItem.id].score"
+                      :label="assessmentForms[criteriaItem.id].score ? 'มี (ผ่าน)' : 'ไม่มี (ไม่ผ่าน)'"
+                      :true-value="criteriaItem.max_score"
+                      :false-value="0"
+                      color="success"
+                      hide-details
+                    ></v-switch>
+                  </div>
+                </v-col>
+
+                <v-col cols="12" md="5">
+                  <v-label class="mb-2">ความคิดเห็นเพิ่มเติม / เหตุผลประกอบ</v-label>
+                  <v-textarea
+                    v-model="assessmentForms[criteriaItem.id].comment"
+                    rows="4"
+                    variant="outlined"
+                    placeholder="ระบุเหตุผล..."
+                    density="compact"
+                  ></v-textarea>
+                </v-col>
+              </v-row>
+
+              <v-sheet color="grey-lighten-4" class="pa-4 rounded mb-4">
+                <div class="text-subtitle-2 mb-2">
+                  <v-icon size="small" start>mdi-paperclip</v-icon>
+                  หลักฐานประกอบ (Evidence)
+                  <span v-if="criteriaItem.require_evidence" class="text-error text-caption font-weight-bold ml-2">* จำเป็นต้องแนบ</span>
+                </div>
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <div v-if="assessmentForms[criteriaItem.id].evidence_file" class="mb-3 pa-3 bg-green-lighten-5 rounded border border-success d-flex align-center">
+                        <v-icon color="success" class="mr-3">mdi-file-check</v-icon>
+                        <div class="mr-auto">
+                            <div class="text-success font-weight-bold">มีไฟล์แนบแล้ว</div>
+                            <div class="text-caption text-grey-darken-1">
+                              {{ assessmentForms[criteriaItem.id].evidence_file.startsWith('data:') ? 'ไฟล์ใหม่ (รอ Save)' : 'ไฟล์เดิมที่บันทึกแล้ว' }}
+                            </div>
+                        </div>
+                        
+                        <v-btn
+                            v-if="!assessmentForms[criteriaItem.id].evidence_file.startsWith('data:')"
+                            :href="getFileUrl(assessmentForms[criteriaItem.id].evidence_file)"
+                            target="_blank"
+                            color="success"
+                            variant="elevated"
+                            size="small"
+                            prepend-icon="mdi-eye"
+                        >
+                            กดดูไฟล์
+                        </v-btn>
+                    </div>
+
+                    <v-file-input
+                      v-model="fileInputs[criteriaItem.id]"
+                      :label="assessmentForms[criteriaItem.id].evidence_file ? 'อัปโหลดใหม่ (เพื่อเปลี่ยนไฟล์เดิม)' : 'แนบไฟล์ (PDF/Image)'"
+                      variant="outlined"
+                      density="compact"
+                      prepend-icon=""
+                      prepend-inner-icon="mdi-file-upload"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      show-size
+                      persistent-hint
+                    ></v-file-input>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="assessmentForms[criteriaItem.id].evidence_url"
+                      label="ลิงก์หลักฐาน (URL)"
+                      placeholder="https://..."
+                      variant="outlined"
+                      density="compact"
+                      prepend-inner-icon="mdi-link"
+                    ></v-text-field>
+                    
+                    <div v-if="assessmentForms[criteriaItem.id].evidence_url" class="mt-1 text-right">
+                        <a :href="assessmentForms[criteriaItem.id].evidence_url" target="_blank" class="text-caption text-decoration-none text-primary font-weight-bold">
+                            <v-icon size="x-small" start>mdi-open-in-new</v-icon>เปิดลิงก์ที่บันทึกไว้
+                        </a>
+                    </div>
+                  </v-col>
+                </v-row>
+              </v-sheet>
+
+              <v-btn
+                type="submit"
+                color="primary"
+                block
+                size="large"
+                :loading="loadingStates[criteriaItem.id]"
+              >
+                บันทึกหัวข้อนี้
+              </v-btn>
+            </v-form>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
+    </div>
+
+    <div v-else-if="selectedRoundId" class="text-center py-5 text-grey">
+      ไม่พบเกณฑ์การประเมินในรอบนี้
+    </div>
+    
+    <div v-else class="text-center py-10 text-grey-lighten-1">
+      <v-icon size="64" class="mb-3">mdi-clipboard-text-search-outline</v-icon>
+      <div>กรุณาเลือกรอบการประเมินเพื่อเริ่มทำรายการ</div>
+    </div>
+
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+      {{ snackbar.message }}
+    </v-snackbar>
+  </v-container>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted } from 'vue';
+import api from '../../plugins/axios';
+import { useAuthStore } from '../../stores/authStore'; 
+
+const authStore = useAuthStore(); 
+const rounds = ref([]);
+const selectedRoundId = ref(null);
+const criterias = ref([]);
+const loading = ref(false);
+const snackbar = reactive({ show: false, message: '', color: 'success' });
+
+// Renamed formModels to assessmentForms for clarity
+const assessmentForms = reactive({});
+const fileInputs = reactive({});
+// Renamed loadingIds to loadingStates
+const loadingStates = reactive({});
+
+const getFileUrl = (path) => {
+  if (!path) return '';
+  if (path.startsWith('http') || path.startsWith('data:')) return path;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `http://localhost:5000${cleanPath}`;
+};
+
+onMounted(async () => {
+  try {
+    const res = await api.get('/admin/rounds');
+    rounds.value = res.data.data.filter(round => round.status === 'open');
+  } catch (error) {
+    console.error(error);
+    showSnackbar('ไม่สามารถโหลดรอบการประเมินได้', 'error');
+  }
+});
+
+const fetchCriterias = async () => {
+  if (!selectedRoundId.value) return;
+  
+  loading.value = true;
+  try {
+    const criRes = await api.get(`/admin/rounds/${selectedRoundId.value}/criterias`);
+    const fetchedCriterias = criRes.data.data;
+
+    const evalRes = await api.get(`/user/evaluations/${selectedRoundId.value}`);
+    const myEvals = evalRes.data.data || [];
+
+    criterias.value = fetchedCriterias.map(criteriaItem => {
+      const existing = myEvals.find(evaluation => 
+        evaluation.criteria_id == criteriaItem.id && 
+        evaluation.evaluator_id == authStore.user.id
+      );
+      
+      // Initialize form model
+      assessmentForms[criteriaItem.id] = {
+        score: existing ? Number(existing.score) : null,
+        comment: existing?.comment || '',
+        evidence_url: existing?.evidence_url || '',
+        evidence_file: existing?.evidence_file || ''
+      };
+
+      fileInputs[criteriaItem.id] = []; 
+
+      return {
+        ...criteriaItem,
+        isSubmitted: !!existing 
+      };
+    });
+
+  } catch (error) {
+    console.error(error);
+    showSnackbar('โหลดข้อมูลเกณฑ์ล้มเหลว', 'error');
+  } finally {
+    loading.value = false;
+  }
+};
+
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+    reader.readAsDataURL(file);
+  });
+};
+
+const submitItem = async (criteriaItem) => {
+  const criteriaId = criteriaItem.id;
+  loadingStates[criteriaId] = true;
+
+  try {
+    // Vuetify 3 v-file-input returns an array
+    const rawFileInput = fileInputs[criteriaId];
+    const fileObj = Array.isArray(rawFileInput) && rawFileInput.length > 0 ? rawFileInput[0] : rawFileInput;
+
+    let fileString = undefined; 
+
+    if (fileObj && fileObj instanceof File) {
+      fileString = await fileToBase64(fileObj);
+    } 
+
+    const payload = {
+      round_id: selectedRoundId.value,
+      criteria_id: criteriaId,
+      score: assessmentForms[criteriaId].score || 0,
+      comment: assessmentForms[criteriaId].comment,
+      evidence_url: assessmentForms[criteriaId].evidence_url,
+      evidence_file: fileString 
+    };
+
+    await api.post('/user/evaluate', payload);
+
+    criteriaItem.isSubmitted = true;
+    
+    if (fileString) {
+        assessmentForms[criteriaId].evidence_file = fileString;
+        fileInputs[criteriaId] = []; 
+    }
+    
+    showSnackbar('บันทึกข้อมูลสำเร็จ', 'success');
+
+  } catch (error) {
+    console.error("Submit Error:", error);
+    showSnackbar(error.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึก', 'error');
+  } finally {
+    loadingStates[criteriaId] = false;
+  }
+};
+
+const showSnackbar = (msg, color) => {
+  snackbar.message = msg;
+  snackbar.color = color;
+  snackbar.show = true;
+};
+</script>

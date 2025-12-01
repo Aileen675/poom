@@ -1,0 +1,518 @@
+<template>
+  <v-container>
+    <v-row>
+      <v-col cols="12">
+        <h1 class="text-h4 mb-4 font-weight-bold text-primary">
+          <v-icon start>mdi-format-list-checks</v-icon>
+          จัดการเกณฑ์การประเมิน
+        </h1>
+      </v-col>
+    </v-row>
+
+    <v-card class="mb-4 elevation-2">
+      <v-card-text>
+        <v-select
+          v-model="selectedRoundId"
+          :items="rounds"
+          item-title="round_name"
+          item-value="id"
+          label="เลือกรอบการประเมินที่ต้องการจัดการ"
+          variant="outlined"
+          hide-details
+        ></v-select>
+      </v-card-text>
+    </v-card>
+
+    <div v-if="selectedRoundId">
+      <v-row>
+        <v-col cols="12" md="4">
+          <v-card class="elevation-2 h-100">
+            <v-card-title class="bg-secondary text-white">
+              1. จัดการหัวข้อ (Topics)
+            </v-card-title>
+            <v-card-text class="pt-4">
+              <v-form @submit.prevent="createTopic">
+                <v-text-field
+                  v-model="topicForm.topic_name"
+                  label="ชื่อหัวข้อหลัก"
+                  placeholder="เช่น สมรรถนะหลัก, KPI"
+                  variant="outlined"
+                  density="compact"
+                  append-inner-icon="mdi-plus-circle"
+                  @click:append-inner="createTopic"
+                  :loading="isTopicLoading"
+                ></v-text-field>
+              </v-form>
+
+              <v-list density="compact" class="mt-2 border rounded">
+                <v-list-subheader>รายชื่อหัวข้อที่มีอยู่</v-list-subheader>
+                
+                <v-list-item v-for="topic in topicsList" :key="topic.id">
+                  <template v-slot:prepend>
+                    <v-icon icon="mdi-label" color="secondary" size="small"></v-icon>
+                  </template>
+                  
+                  <v-list-item-title>{{ topic.topic_name }}</v-list-item-title>
+
+                  <template v-slot:append>
+                    <v-btn 
+                      icon="mdi-pencil" 
+                      size="x-small" 
+                      variant="text" 
+                      color="primary"
+                      @click="openEditTopicDialog(topic)"
+                    ></v-btn>
+                    <v-btn 
+                      icon="mdi-delete" 
+                      size="x-small" 
+                      variant="text" 
+                      color="error"
+                      @click="confirmDeleteTopic(topic)"
+                    ></v-btn>
+                  </template>
+                </v-list-item>
+
+                <v-list-item v-if="topicsList.length === 0">
+                  <div class="text-caption text-grey text-center">ยังไม่มีหัวข้อ</div>
+                </v-list-item>
+              </v-list>
+            </v-card-text>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="8">
+          <v-card class="elevation-4">
+            <v-card-title class="bg-primary text-white">
+              2. เพิ่มตัวชี้วัด (Indicators)
+            </v-card-title>
+            <v-card-text class="pt-4">
+              <v-form @submit.prevent="createCriteria" ref="criForm">
+                <v-select
+                  v-model="criteriaForm.topic_id"
+                  :items="topicsList"
+                  item-title="topic_name"
+                  item-value="id"
+                  label="เลือกหัวข้อ (Topic)"
+                  variant="outlined"
+                  required
+                  :rules="[v => !!v || 'กรุณาเลือกหัวข้อ']"
+                ></v-select>
+
+                <v-text-field
+                  v-model="criteriaForm.indicator_name"
+                  label="ตัวชี้วัด (Indicator)"
+                  placeholder="รายละเอียดสิ่งที่ต้องการวัด..."
+                  variant="outlined"
+                  density="compact"
+                  required
+                ></v-text-field>
+
+                <v-textarea
+                  v-model="criteriaForm.description"
+                  label="รายละเอียดเกณฑ์ (Description)"
+                  placeholder="อธิบายรายละเอียดของเกณฑ์นี้..."
+                  variant="outlined"
+                  rows="2"
+                  density="compact"
+                ></v-textarea>
+
+                <v-row>
+                  <v-col cols="6">
+                    <v-text-field
+                      v-model="criteriaForm.max_score"
+                      label="คะแนนเต็ม"
+                      type="number"
+                      variant="outlined"
+                      density="compact"
+                      required
+                    ></v-text-field>
+                  </v-col>
+                  <v-col cols="6">
+                    <v-select
+                      v-model="criteriaForm.scoring_type"
+                      label="รูปแบบคะแนน"
+                      :items="[{title:'Scale 1-4', value:'scale'}, {title:'Boolean (มี/ไม่มี)', value:'boolean'}]"
+                      variant="outlined"
+                      density="compact"
+                    ></v-select>
+                  </v-col>
+                </v-row>
+
+                <v-checkbox
+                  v-model="criteriaForm.require_evidence"
+                  label="จำเป็นต้องแนบหลักฐาน (Require Evidence)"
+                  color="primary"
+                  hide-details
+                  class="mb-4"
+                ></v-checkbox>
+
+                <v-btn type="submit" color="success" block :loading="isCriteriaLoading">
+                  บันทึกตัวชี้วัด
+                </v-btn>
+              </v-form>
+            </v-card-text>
+          </v-card>
+
+          <v-card class="mt-4 elevation-2">
+            <v-card-title>รายการเกณฑ์ทั้งหมดในรอบนี้</v-card-title>
+            <v-table density="compact">
+              <thead>
+                <tr>
+                  <th>หัวข้อ</th>
+                  <th>ตัวชี้วัด</th>
+                  <th>คะแนน</th>
+                  <th>หลักฐาน</th>
+                  <th>จัดการ</th> </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in criteriaList" :key="item.id">
+                  <td class="font-weight-bold text-secondary">{{ item.topic_name }}</td>
+                  <td>
+                    <div>{{ item.indicator_name }}</div>
+                    <div class="text-caption text-grey">{{ item.description }}</div>
+                  </td>
+                  <td>{{ item.max_score }}</td>
+                  <td>
+                    <v-icon v-if="item.require_evidence" color="error" size="small">mdi-paperclip</v-icon>
+                    <span v-else class="text-grey">-</span>
+                  </td>
+                  <td>
+                    <v-btn
+                      icon="mdi-pencil"
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      @click="openEditCriteriaDialog(item)"
+                    ></v-btn>
+                    <v-btn
+                      icon="mdi-delete"
+                      size="x-small"
+                      variant="text"
+                      color="error"
+                      @click="confirmDeleteCriteria(item)"
+                    ></v-btn>
+                  </td>
+                </tr>
+                <tr v-if="criteriaList.length === 0">
+                  <td colspan="5" class="text-center text-grey">ยังไม่มีข้อมูล</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </v-card>
+        </v-col>
+      </v-row>
+    </div>
+
+    <v-dialog v-model="editTopicDialog" max-width="400px">
+      <v-card>
+        <v-card-title class="bg-primary text-white">แก้ไขหัวข้อ</v-card-title>
+        <v-card-text class="pt-4">
+          <v-text-field
+            v-model="editingTopic.topic_name"
+            label="ชื่อหัวข้อ"
+            variant="outlined"
+            autofocus
+          ></v-text-field>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="grey" variant="text" @click="editTopicDialog = false">ยกเลิก</v-btn>
+          <v-btn color="success" @click="saveEditTopic">บันทึก</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteTopicDialog" max-width="400px">
+      <v-card>
+        <v-card-title class="text-error">ยืนยันการลบหัวข้อ?</v-card-title>
+        <v-card-text>
+          คุณต้องการลบหัวข้อ <strong>"{{ topicToDelete?.topic_name }}"</strong> ใช่หรือไม่?<br>
+          <small class="text-grey">* ตัวชี้วัดทั้งหมดภายใต้หัวข้อนี้จะถูกลบด้วย</small>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="grey" variant="text" @click="deleteTopicDialog = false">ยกเลิก</v-btn>
+          <v-btn color="error" variant="elevated" @click="submitDeleteTopic">ลบหัวข้อ</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="editCriteriaDialog" max-width="500px">
+      <v-card>
+        <v-card-title class="bg-primary text-white">แก้ไขตัวชี้วัด</v-card-title>
+        <v-card-text class="pt-4">
+          <v-form @submit.prevent="saveEditCriteria">
+            <v-select
+              v-model="editingCriteria.topic_id"
+              :items="topicsList"
+              item-title="topic_name"
+              item-value="id"
+              label="เลือกหัวข้อ (Topic)"
+              variant="outlined"
+              required
+            ></v-select>
+
+            <v-text-field
+              v-model="editingCriteria.indicator_name"
+              label="ตัวชี้วัด"
+              variant="outlined"
+              required
+            ></v-text-field>
+
+            <v-textarea
+              v-model="editingCriteria.description"
+              label="รายละเอียด"
+              variant="outlined"
+              rows="2"
+            ></v-textarea>
+
+            <v-row>
+              <v-col cols="6">
+                <v-text-field
+                  v-model="editingCriteria.max_score"
+                  label="คะแนนเต็ม"
+                  type="number"
+                  variant="outlined"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="6">
+                <v-select
+                  v-model="editingCriteria.scoring_type"
+                  label="รูปแบบคะแนน"
+                  :items="[{title:'Scale 1-4', value:'scale'}, {title:'Boolean', value:'boolean'}]"
+                  variant="outlined"
+                ></v-select>
+              </v-col>
+            </v-row>
+
+            <v-checkbox
+              v-model="editingCriteria.require_evidence"
+              label="จำเป็นต้องแนบหลักฐาน"
+              color="primary"
+              hide-details
+            ></v-checkbox>
+
+            <div class="d-flex justify-end mt-4">
+              <v-btn color="grey" variant="text" class="mr-2" @click="editCriteriaDialog = false">ยกเลิก</v-btn>
+              <v-btn color="success" type="submit">บันทึก</v-btn>
+            </div>
+          </v-form>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteCriteriaDialog" max-width="400px">
+      <v-card>
+        <v-card-title class="text-error">ยืนยันการลบตัวชี้วัด?</v-card-title>
+        <v-card-text>
+          คุณต้องการลบตัวชี้วัด <strong>"{{ criteriaToDelete?.indicator_name }}"</strong> ใช่หรือไม่?
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="grey" variant="text" @click="deleteCriteriaDialog = false">ยกเลิก</v-btn>
+          <v-btn color="error" variant="elevated" @click="submitDeleteCriteria">ลบตัวชี้วัด</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color">
+      {{ snackbar.message }}
+    </v-snackbar>
+  </v-container>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted, watch } from 'vue';
+import api from '../../plugins/axios';
+
+// State
+const rounds = ref([]);
+const selectedRoundId = ref(null);
+const topicsList = ref([]);
+const criteriaList = ref([]);
+
+const isTopicLoading = ref(false);
+const isCriteriaLoading = ref(false);
+const snackbar = reactive({ show: false, message: '', color: 'success' });
+
+// Create Forms
+const topicForm = reactive({ topic_name: '' });
+const criteriaForm = reactive({
+  topic_id: null,
+  indicator_name: '',
+  description: '',
+  max_score: 10,
+  scoring_type: 'scale',
+  require_evidence: false
+});
+
+// Edit/Delete State
+const editTopicDialog = ref(false);
+const deleteTopicDialog = ref(false);
+const editingTopic = reactive({ id: null, topic_name: '' });
+const topicToDelete = ref(null);
+
+const editCriteriaDialog = ref(false);
+const deleteCriteriaDialog = ref(false);
+const editingCriteria = reactive({});
+const criteriaToDelete = ref(null);
+
+onMounted(async () => {
+  try {
+    const res = await api.get('/admin/rounds');
+    rounds.value = res.data.data;
+  } catch (error) { 
+    console.error("Error fetching rounds:", error); 
+  }
+});
+
+watch(selectedRoundId, async (newId) => {
+  if (newId) {
+    await fetchTopics(newId);
+    await fetchCriterias(newId);
+  }
+});
+
+// --- Fetch Functions ---
+const fetchTopics = async (roundId) => {
+  try {
+    const res = await api.get(`/admin/rounds/${roundId}/topics`);
+    topicsList.value = res.data.data;
+  } catch (error) { 
+    console.error("Error fetching topics:", error); 
+  }
+};
+
+const fetchCriterias = async (roundId) => {
+  try {
+    const res = await api.get(`/admin/rounds/${roundId}/criterias`);
+    criteriaList.value = res.data.data;
+  } catch (error) { 
+    console.error("Error fetching criterias:", error); 
+  }
+};
+
+// --- Topic Handlers ---
+const createTopic = async () => {
+  if (!topicForm.topic_name) return;
+  isTopicLoading.value = true;
+  try {
+    await api.post('/admin/topics', {
+      round_id: selectedRoundId.value,
+      topic_name: topicForm.topic_name
+    });
+    showSnackbar('เพิ่มหัวข้อสำเร็จ', 'success');
+    topicForm.topic_name = '';
+    await fetchTopics(selectedRoundId.value);
+  } catch (error) {
+    showSnackbar('เกิดข้อผิดพลาดในการสร้างหัวข้อ', 'error');
+  } finally {
+    isTopicLoading.value = false;
+  }
+};
+
+const openEditTopicDialog = (topic) => {
+  editingTopic.id = topic.id;
+  editingTopic.topic_name = topic.topic_name;
+  editTopicDialog.value = true;
+};
+
+const saveEditTopic = async () => {
+  if (!editingTopic.topic_name) return;
+  try {
+    await api.put(`/admin/topics/${editingTopic.id}`, { topic_name: editingTopic.topic_name });
+    showSnackbar('แก้ไขหัวข้อสำเร็จ', 'success');
+    editTopicDialog.value = false;
+    await fetchTopics(selectedRoundId.value);
+    await fetchCriterias(selectedRoundId.value); // Refresh in case topic name change affects list
+  } catch (error) {
+    showSnackbar('แก้ไขหัวข้อไม่สำเร็จ', 'error');
+  }
+};
+
+const confirmDeleteTopic = (topic) => {
+  topicToDelete.value = topic;
+  deleteTopicDialog.value = true;
+};
+
+const submitDeleteTopic = async () => {
+  if (!topicToDelete.value) return;
+  try {
+    await api.delete(`/admin/topics/${topicToDelete.value.id}`);
+    showSnackbar('ลบหัวข้อสำเร็จ', 'success');
+    deleteTopicDialog.value = false;
+    await fetchTopics(selectedRoundId.value);
+    await fetchCriterias(selectedRoundId.value);
+  } catch (error) {
+    showSnackbar('ลบหัวข้อไม่สำเร็จ', 'error');
+  }
+};
+
+// --- Criteria Handlers ---
+const createCriteria = async () => {
+  if (!criteriaForm.topic_id || !criteriaForm.indicator_name) {
+    showSnackbar('กรุณากรอกข้อมูลให้ครบ', 'warning');
+    return;
+  }
+  isCriteriaLoading.value = true;
+  try {
+    await api.post('/admin/criterias', {
+      round_id: selectedRoundId.value,
+      ...criteriaForm
+    });
+    showSnackbar('บันทึกตัวชี้วัดเรียบร้อย', 'success');
+    
+    // Reset Form
+    criteriaForm.indicator_name = '';
+    criteriaForm.description = '';
+    criteriaForm.require_evidence = false;
+    
+    await fetchCriterias(selectedRoundId.value);
+  } catch (error) {
+    showSnackbar('เกิดข้อผิดพลาดในการสร้างตัวชี้วัด', 'error');
+  } finally {
+    isCriteriaLoading.value = false;
+  }
+};
+
+const openEditCriteriaDialog = (item) => {
+  Object.assign(editingCriteria, item);
+  editingCriteria.require_evidence = !!item.require_evidence;
+  editCriteriaDialog.value = true;
+};
+
+const saveEditCriteria = async () => {
+  try {
+    await api.put(`/admin/criterias/${editingCriteria.id}`, editingCriteria);
+    showSnackbar('แก้ไขตัวชี้วัดสำเร็จ', 'success');
+    editCriteriaDialog.value = false;
+    await fetchCriterias(selectedRoundId.value);
+  } catch (error) {
+    showSnackbar('แก้ไขตัวชี้วัดไม่สำเร็จ', 'error');
+  }
+};
+
+const confirmDeleteCriteria = (item) => {
+  criteriaToDelete.value = item;
+  deleteCriteriaDialog.value = true;
+};
+
+const submitDeleteCriteria = async () => {
+  if (!criteriaToDelete.value) return;
+  try {
+    await api.delete(`/admin/criterias/${criteriaToDelete.value.id}`);
+    showSnackbar('ลบตัวชี้วัดสำเร็จ', 'success');
+    deleteCriteriaDialog.value = false;
+    await fetchCriterias(selectedRoundId.value);
+  } catch (error) {
+    showSnackbar('ลบตัวชี้วัดไม่สำเร็จ', 'error');
+  }
+};
+
+// --- Helper ---
+const showSnackbar = (msg, color) => {
+  snackbar.message = msg;
+  snackbar.color = color;
+  snackbar.show = true;
+};
+</script>
