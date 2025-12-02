@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # 1. Database Service
+  db:
+    image: mysql:latest
+    container_name: eval_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: your_strong_password_here
+      MYSQL_DATABASE: personnel_eval_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  # 2. Backend Service
+  backend:
+    build: ./backend
+    container_name: eval_backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=your_strong_password_here
+      - DB_NAME=personnel_eval_db
+      - PORT=5000
+      - JWT_SECRET=your_jwt_secret_key_for_competition
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend:/app
+      - /app/node_modules
+
+  # 3. Frontend Service (ส่วนที่เพิ่มเข้ามาใหม่)
+  frontend:
+    build: ./frontend
+    container_name: eval_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173" # Map Port 5173 ของเครื่องเรา เข้ากับ 5173 ของ Container
+    volumes:
+      - ./frontend:/app # Mount โค้ดเพื่อให้แก้ไฟล์แล้วเว็บรีเฟรชเอง (Hot Reload)
+      - /app/node_modules # ป้องกัน node_modules ใน container ถูกทับ
+    depends_on:
+      - backend # ให้ Backend รันก่อน Frontend
+
+volumes:
+  mysql_data:
